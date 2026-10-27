@@ -102,7 +102,6 @@ Per pubblicare una release: crea un tag `vX.Y.Z` e fai push; il workflow `releas
 - Accesso OAuth per Outlook/Microsoft 365 (PKCE, nessun segreto da distribuire)
 - Scansione di altre cartelle (es. "Tutti i messaggi" di Gmail, Spam)
 - Rilevamento dei link di disiscrizione nel corpo delle email che non hanno `List-Unsubscribe`
-- Passaggio a un client IMAP asincrono più recente
 
 Contributi benvenuti: apri una issue o una pull request.
 

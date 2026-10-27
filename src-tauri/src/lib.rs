@@ -102,13 +102,8 @@ async fn connect_account(
         servers,
     };
 
-    let (acc, pw) = (account.clone(), password.clone());
-    blocking(move || {
-        let mut session = mail::imap_login(&acc, &pw)?;
-        let _ = session.logout();
-        Ok(())
-    })
-    .await?;
+    let mut session = mail::imap_login(&account, &password).await?;
+    let _ = session.logout().await;
 
     let password_saved = store.set_password(&account.id, &password);
     {
@@ -165,15 +160,13 @@ async fn scan_inbox(
     let password = password_for(&store, &id)?;
     let months = months.clamp(1, 120);
 
-    let result = blocking(move || {
-        let mut session = mail::imap_login(&account, &password)?;
-        let result = scan::scan(&mut session, months, |p: ScanProgress| {
-            let _ = app.emit("scan-progress", p);
-        });
-        let _ = session.logout();
-        result
+    let mut session = mail::imap_login(&account, &password).await?;
+    let result = scan::scan(&mut session, months, |p: ScanProgress| {
+        let _ = app.emit("scan-progress", p);
     })
-    .await?;
+    .await;
+    let _ = session.logout().await;
+    let result = result?;
 
     store
         .data
@@ -273,48 +266,32 @@ async fn unsubscribe(
     })
     .await;
 
-    // 2. Email fallbacks and (optionally) cleanup over IMAP; both are blocking.
-    let app2 = app.clone();
-    let outcomes = blocking(move || {
-        let emit = |phase: &'static str, done: usize| {
-            let _ = app2.emit("unsub-progress", UnsubProgress { phase, done, total });
-        };
+    // 2. Email fallbacks; lettre's SMTP transport is blocking.
+    let (acc, pw) = (account.clone(), password.clone());
+    let mut outcomes = blocking(move || {
         let mut smtp = None;
-        let connect_smtp = || mail::Smtp::new(&account, &password);
-        let mut outcomes: Vec<Outcome> = senders
+        let connect_smtp = || mail::Smtp::new(&acc, &pw);
+        Ok(senders
             .iter()
             .zip(one_click)
             .map(|(sender, result)| unsub::finish(sender, result, &mut smtp, &connect_smtp))
-            .collect();
-        emit("unsubscribe", total);
-
-        if trash {
-            emit("trash", 0);
-            // Cleanup is best effort: a failure here must not hide the
-            // unsubscribe results above, which have already happened.
-            let cleanup = mail::imap_login(&account, &password).and_then(|mut session| {
-                let folder = scan::find_trash(&mut session)?;
-                for (i, outcome) in outcomes.iter_mut().enumerate() {
-                    match scan::move_to_trash(&mut session, &folder, &outcome.key) {
-                        Ok(n) => outcome.trashed = n,
-                        Err(e) => {
-                            outcome.error.get_or_insert(e);
-                        }
-                    }
-                    emit("trash", i + 1);
-                }
-                let _ = session.logout();
-                Ok(())
-            });
-            if let Err(e) = cleanup {
-                for outcome in &mut outcomes {
-                    outcome.error.get_or_insert_with(|| e.clone());
-                }
-            }
-        }
-        Ok(outcomes)
+            .collect::<Vec<Outcome>>())
     })
     .await?;
+    progress("unsubscribe", total);
+
+    // 3. Optional cleanup over IMAP. Best effort: a failure here must not hide
+    // the unsubscribe results above, which have already happened.
+    if trash {
+        progress("trash", 0);
+        if let Err(e) =
+            trash_all(&account, &password, &mut outcomes, |i| progress("trash", i)).await
+        {
+            for outcome in &mut outcomes {
+                outcome.error.get_or_insert_with(|| e.clone());
+            }
+        }
+    }
 
     for o in &outcomes {
         if let (Status::Done, Some(method)) = (o.status, o.method) {
@@ -323,6 +300,27 @@ async fn unsubscribe(
     }
     store.save()?;
     Ok(outcomes)
+}
+
+async fn trash_all(
+    account: &Account,
+    password: &str,
+    outcomes: &mut [Outcome],
+    progress: impl Fn(usize),
+) -> Result<(), String> {
+    let mut session = mail::imap_login(account, password).await?;
+    let folder = scan::find_trash(&mut session).await?;
+    for (i, outcome) in outcomes.iter_mut().enumerate() {
+        match scan::move_to_trash(&mut session, &folder, &outcome.key).await {
+            Ok(n) => outcome.trashed = n,
+            Err(e) => {
+                outcome.error.get_or_insert(e);
+            }
+        }
+        progress(i + 1);
+    }
+    let _ = session.logout().await;
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

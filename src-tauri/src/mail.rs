@@ -1,21 +1,22 @@
 //! IMAP and SMTP connections.
 
-use std::net::{TcpStream, ToSocketAddrs};
+use std::future::Future;
 use std::time::Duration;
 
 use lettre::message::Mailbox;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::transport::smtp::client::{Tls as SmtpTls, TlsParameters};
 use lettre::{Message, SmtpTransport, Transport};
-use native_tls::{TlsConnector, TlsStream};
+use tokio::net::TcpStream;
+use tokio_native_tls::{native_tls, TlsConnector, TlsStream};
 
 use crate::providers::{is_local_host, Security};
 use crate::store::Account;
 
-pub type ImapSession = imap::Session<TlsStream<TcpStream>>;
+pub type ImapSession = async_imap::Session<TlsStream<TcpStream>>;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
-const IO_TIMEOUT: Duration = Duration::from_secs(120);
+pub const IO_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Errors are returned as short codes the UI translates, optionally followed
 /// by `: <technical detail>`.
@@ -23,69 +24,86 @@ fn err(code: &str, detail: impl std::fmt::Display) -> String {
     format!("{code}: {detail}")
 }
 
+/// Runs an IMAP operation with a deadline, so a stalled server can't hang the app.
+pub async fn timed<T, E: std::fmt::Display>(
+    code: &str,
+    limit: Duration,
+    fut: impl Future<Output = Result<T, E>>,
+) -> Result<T, String> {
+    match tokio::time::timeout(limit, fut).await {
+        Ok(result) => result.map_err(|e| err(code, e)),
+        Err(_) => Err(err(code, "timed out")),
+    }
+}
+
 fn tls_connector(host: &str) -> Result<TlsConnector, String> {
-    TlsConnector::builder()
+    native_tls::TlsConnector::builder()
         // Local bridges such as Proton Mail Bridge use self-signed certificates.
         .danger_accept_invalid_certs(is_local_host(host))
         .build()
+        .map(TlsConnector::from)
         .map_err(|e| err("tls_failed", e))
 }
 
-fn tcp_connect(host: &str, port: u16) -> Result<TcpStream, String> {
-    let addrs = (host, port)
-        .to_socket_addrs()
-        .map_err(|e| err("connect_failed", e))?;
-    let mut last = None;
-    for addr in addrs {
-        match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
-            Ok(stream) => {
-                stream.set_read_timeout(Some(IO_TIMEOUT)).ok();
-                stream.set_write_timeout(Some(IO_TIMEOUT)).ok();
-                return Ok(stream);
-            }
-            Err(e) => last = Some(e),
-        }
-    }
-    Err(err(
-        "connect_failed",
-        last.map(|e| e.to_string())
-            .unwrap_or_else(|| format!("{host}:{port}")),
-    ))
-}
-
-pub fn imap_login(account: &Account, password: &str) -> Result<ImapSession, String> {
+pub async fn imap_login(account: &Account, password: &str) -> Result<ImapSession, String> {
     let s = &account.servers;
-    let tls = tls_connector(&s.imap_host)?;
-    let stream = tcp_connect(&s.imap_host, s.imap_port)?;
+    let host = s.imap_host.as_str();
+    let tls = tls_connector(host)?;
+    let stream = timed(
+        "connect_failed",
+        CONNECT_TIMEOUT,
+        TcpStream::connect((host, s.imap_port)),
+    )
+    .await?;
 
     let client = match s.imap_security {
         Security::Tls => {
-            let tls_stream = tls
-                .connect(&s.imap_host, stream)
-                .map_err(|e| err("tls_failed", e))?;
-            let mut client = imap::Client::new(tls_stream);
-            client
-                .read_greeting()
-                .map_err(|e| err("connect_failed", e))?;
+            let tls_stream =
+                timed("tls_failed", CONNECT_TIMEOUT, tls.connect(host, stream)).await?;
+            let mut client = async_imap::Client::new(tls_stream);
+            read_greeting(&mut client).await?;
             client
         }
         Security::Starttls => {
-            let mut client = imap::Client::new(stream);
-            client
-                .read_greeting()
-                .map_err(|e| err("connect_failed", e))?;
-            client
-                .secure(&s.imap_host, &tls)
-                .map_err(|e| err("tls_failed", e))?
+            let mut client = async_imap::Client::new(stream);
+            read_greeting(&mut client).await?;
+            timed(
+                "tls_failed",
+                CONNECT_TIMEOUT,
+                client.run_command_and_check_ok("STARTTLS", None),
+            )
+            .await?;
+            let tls_stream = timed(
+                "tls_failed",
+                CONNECT_TIMEOUT,
+                tls.connect(host, client.into_inner()),
+            )
+            .await?;
+            // No new greeting is sent after STARTTLS.
+            async_imap::Client::new(tls_stream)
         }
     };
 
-    client
-        .login(&account.username, password)
-        .map_err(|(e, _)| match e {
-            imap::Error::No(msg) | imap::Error::Bad(msg) => err("auth_failed", msg),
-            other => err("connect_failed", other),
-        })
+    match tokio::time::timeout(CONNECT_TIMEOUT, client.login(&account.username, password)).await {
+        Ok(Ok(session)) => Ok(session),
+        Ok(Err((async_imap::error::Error::No(msg) | async_imap::error::Error::Bad(msg), _))) => {
+            Err(err("auth_failed", msg))
+        }
+        Ok(Err((other, _))) => Err(err("connect_failed", other)),
+        Err(_) => Err(err("connect_failed", "timed out")),
+    }
+}
+
+async fn read_greeting<T>(client: &mut async_imap::Client<T>) -> Result<(), String>
+where
+    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    match tokio::time::timeout(CONNECT_TIMEOUT, client.read_response()).await {
+        Ok(Ok(Some(_))) => Ok(()),
+        Ok(Ok(None)) => Err(err("connect_failed", "connection closed before greeting")),
+        Ok(Err(e)) => Err(err("connect_failed", e)),
+        Err(_) => Err(err("connect_failed", "timed out")),
+    }
 }
 
 pub struct Smtp {

@@ -3,11 +3,14 @@
 
 use std::collections::HashMap;
 
+use async_imap::types::{Fetch, NameAttribute};
+use futures_util::TryStreamExt;
+
 use mailparse::{addrparse_header, parse_headers, MailAddr, MailHeaderMap};
 use serde::{Deserialize, Serialize};
 
 use crate::listunsub::{self, UnsubscribeMethods};
-use crate::mail::ImapSession;
+use crate::mail::{timed, ImapSession, IO_TIMEOUT};
 
 pub const INBOX: &str = "INBOX";
 const BATCH: usize = 250;
@@ -87,20 +90,19 @@ fn parse_message_headers(raw: &[u8]) -> Option<Header> {
 }
 
 /// Scans the inbox for mailing lists received in the last `months` months.
-pub fn scan(
+pub async fn scan(
     session: &mut ImapSession,
     months: u32,
     mut progress: impl FnMut(ScanProgress),
 ) -> Result<ScanResult, String> {
+    const E: &str = "scan_failed";
     // EXAMINE opens the mailbox read-only, so scanning never marks anything as read.
-    session
-        .examine(INBOX)
-        .map_err(|e| format!("scan_failed: {e}"))?;
+    timed(E, IO_TIMEOUT, session.examine(INBOX)).await?;
 
     let since = chrono::Utc::now() - chrono::Duration::days(i64::from(months) * 31);
-    let mut uids: Vec<u32> = session
-        .uid_search(format!("SINCE {}", since.format("%d-%b-%Y")))
-        .map_err(|e| format!("scan_failed: {e}"))?
+    let query = format!("SINCE {}", since.format("%d-%b-%Y"));
+    let mut uids: Vec<u32> = timed(E, IO_TIMEOUT, session.uid_search(query))
+        .await?
         .into_iter()
         .collect();
     uids.sort_unstable_by(|a, b| b.cmp(a));
@@ -115,16 +117,11 @@ pub fn scan(
     });
 
     for chunk in uids.chunks(BATCH) {
-        let set = chunk
-            .iter()
-            .map(u32::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
-        let fetches = session
-            .uid_fetch(set, FETCH_QUERY)
-            .map_err(|e| format!("scan_failed: {e}"))?;
+        let fetches = fetch_all(session, &uid_set(chunk), FETCH_QUERY)
+            .await
+            .map_err(|e| format!("{E}: {e}"))?;
 
-        for fetch in fetches.iter() {
+        for fetch in &fetches {
             let Some(header) = fetch.header().and_then(parse_message_headers) else {
                 continue;
             };
@@ -171,16 +168,47 @@ pub fn scan(
     })
 }
 
+fn uid_set(uids: &[u32]) -> String {
+    uids.iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Runs a UID FETCH and drains the response stream (it must be fully read
+/// before the connection can be used again).
+async fn fetch_all(
+    session: &mut ImapSession,
+    set: &str,
+    query: &str,
+) -> Result<Vec<Fetch>, String> {
+    let fut = async {
+        session
+            .uid_fetch(set, query)
+            .await?
+            .try_collect::<Vec<_>>()
+            .await
+    };
+    timed("fetch", IO_TIMEOUT, fut)
+        .await
+        .map_err(|e| e.trim_start_matches("fetch: ").to_string())
+}
+
 /// Finds the special-use `\Trash` folder, falling back to common names.
-pub fn find_trash(session: &mut ImapSession) -> Result<String, String> {
-    let names = session
-        .list(Some(""), Some("*"))
-        .map_err(|e| format!("trash_failed: {e}"))?;
+pub async fn find_trash(session: &mut ImapSession) -> Result<String, String> {
+    let fut = async {
+        session
+            .list(Some(""), Some("*"))
+            .await?
+            .try_collect::<Vec<_>>()
+            .await
+    };
+    let names = timed("trash_failed", IO_TIMEOUT, fut).await?;
 
     let special = names.iter().find(|n| {
-        n.attributes().iter().any(|a| {
-            matches!(a, imap::types::NameAttribute::Custom(s) if s.eq_ignore_ascii_case("\\Trash"))
-        })
+        n.attributes()
+            .iter()
+            .any(|a| matches!(a, NameAttribute::Trash))
     });
     if let Some(name) = special {
         return Ok(name.name().to_string());
@@ -204,29 +232,32 @@ pub fn find_trash(session: &mut ImapSession) -> Result<String, String> {
 }
 
 /// Moves every inbox message from `sender` to the trash. Returns how many were moved.
-pub fn move_to_trash(session: &mut ImapSession, trash: &str, sender: &str) -> Result<u32, String> {
-    let fail = |e: imap::Error| format!("trash_failed: {e}");
-    session.select(INBOX).map_err(fail)?;
+pub async fn move_to_trash(
+    session: &mut ImapSession,
+    trash: &str,
+    sender: &str,
+) -> Result<u32, String> {
+    const E: &str = "trash_failed";
+    timed(E, IO_TIMEOUT, session.select(INBOX)).await?;
 
     // IMAP's FROM search is a substring match, so confirm the exact address
     // before touching anything ("ann@x.com" must not catch "joann@x.com").
-    let candidates: Vec<u32> = session
-        .uid_search(format!("FROM \"{}\"", sender.replace(['"', '\\'], "")))
-        .map_err(fail)?
+    let query = format!("FROM \"{}\"", sender.replace(['"', '\\'], ""));
+    let candidates: Vec<u32> = timed(E, IO_TIMEOUT, session.uid_search(query))
+        .await?
         .into_iter()
         .collect();
     if candidates.is_empty() {
         return Ok(0);
     }
-    let set = candidates
-        .iter()
-        .map(u32::to_string)
-        .collect::<Vec<_>>()
-        .join(",");
-    let fetches = session
-        .uid_fetch(&set, "(UID BODY.PEEK[HEADER.FIELDS (FROM)])")
-        .map_err(fail)?;
-    let uids: Vec<String> = fetches
+    let fetches = fetch_all(
+        session,
+        &uid_set(&candidates),
+        "(UID BODY.PEEK[HEADER.FIELDS (FROM)])",
+    )
+    .await
+    .map_err(|e| format!("{E}: {e}"))?;
+    let uids: Vec<u32> = fetches
         .iter()
         .filter(|f| {
             f.header()
@@ -238,20 +269,29 @@ pub fn move_to_trash(session: &mut ImapSession, trash: &str, sender: &str) -> Re
                 .and_then(|list| list.extract_single_info())
                 .is_some_and(|info| info.addr.trim().eq_ignore_ascii_case(sender))
         })
-        .filter_map(|f| f.uid.map(|u| u.to_string()))
+        .filter_map(|f| f.uid)
         .collect();
     if uids.is_empty() {
         return Ok(0);
     }
 
-    let set = uids.join(",");
-    if session.uid_mv(&set, trash).is_err() {
+    let set = uid_set(&uids);
+    if timed(E, IO_TIMEOUT, session.uid_mv(&set, trash))
+        .await
+        .is_err()
+    {
         // Server without the MOVE extension: copy, flag as deleted, expunge.
-        session.uid_copy(&set, trash).map_err(fail)?;
-        session
-            .uid_store(&set, "+FLAGS.SILENT (\\Deleted)")
-            .map_err(fail)?;
-        session.expunge().map_err(fail)?;
+        timed(E, IO_TIMEOUT, session.uid_copy(&set, trash)).await?;
+        let flag = async {
+            session
+                .uid_store(&set, "+FLAGS.SILENT (\\Deleted)")
+                .await?
+                .try_collect::<Vec<_>>()
+                .await
+        };
+        timed(E, IO_TIMEOUT, flag).await?;
+        let expunge = async { session.expunge().await?.try_collect::<Vec<_>>().await };
+        timed(E, IO_TIMEOUT, expunge).await?;
     }
     Ok(uids.len() as u32)
 }

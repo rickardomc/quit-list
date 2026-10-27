@@ -18,14 +18,14 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-imap = "2.4"
-native-tls = "0.2"
 mailparse = "0.18.0"
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "native-tls", "hostname"] }
 reqwest = { version = "0.12", default-features = false, features = ["native-tls", "charset", "http2"] }
 chrono = "0.4.45"
 percent-encoding = "2.3.2"
 url = "2.5.8"
-tokio = { version = "1.54.1", features = ["sync", "macros", "rt-multi-thread"] }
+tokio = { version = "1.54.1", features = ["sync", "macros", "rt-multi-thread", "net", "time"] }
 futures-util = "0.3.34"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+async-imap = { version = "0.12.0", default-features = false, features = ["runtime-tokio"] }
+tokio-native-tls = "0.3.1"
