@@ -45,12 +45,15 @@ export interface Sender {
   lastSeen: number;
   lastSubject: string;
   methods: UnsubscribeMethods;
+  /** "other" = receipts, orders, account and security notifications. */
+  kind: "newsletter" | "other";
 }
 
 export interface ScanResult {
   scannedAt: number;
   months: number;
   messagesScanned: number;
+  folders?: string[];
   senders: Sender[];
 }
 

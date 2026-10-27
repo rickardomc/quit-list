@@ -12,15 +12,17 @@ import {
   type ServerSettings,
 } from "./api";
 import { DONATION_LINKS, REPO_URL } from "./config";
+import { icons } from "./icons";
 import { dateFmt, errorText, hintFor, lang, relative, setLang, t } from "./i18n";
 
 // A sender still mailing this long after unsubscribing has ignored the request.
 const GRACE_SECONDS = 3 * 86_400;
 const MONTH_OPTIONS = [1, 3, 6, 12, 24, 60];
 
-type Tab = "todo" | "kept" | "done";
+type Tab = "todo" | "other" | "kept" | "done";
 type Sort = "count" | "recent" | "name";
 type Method = "oneClick" | "email" | "link";
+type MethodFilter = "all" | "noClick" | Method;
 
 type Modal =
   | { kind: "confirm"; keys: string[] }
@@ -39,6 +41,7 @@ const state = {
   tab: "todo" as Tab,
   query: "",
   sort: "count" as Sort,
+  method: "all" as MethodFilter,
   selected: new Set<string>(),
   trash: false,
   months: 12,
@@ -69,17 +72,30 @@ function tabOf(s: Sender): Tab {
   const { entry, stillSending, kept } = senderStatus(s);
   if (kept) return "kept";
   if (entry && !stillSending) return "done";
-  return "todo";
+  return s.kind === "other" ? "other" : "todo";
+}
+
+/** Tabs whose senders can still be selected and unsubscribed. */
+const isActionTab = (tab: Tab) => tab === "todo" || tab === "other";
+
+function matchesMethod(s: Sender): boolean {
+  const m = methodOf(s);
+  if (state.method === "all") return true;
+  if (state.method === "noClick") return m !== "link";
+  return m === state.method;
 }
 
 const senders = () => state.scan?.senders ?? [];
+/** Newsletters still to handle: what "Quit all" acts on. */
 const todo = () => senders().filter((s) => tabOf(s) === "todo");
+const actionable = () => senders().filter((s) => isActionTab(tabOf(s)));
 
 function visibleSenders(): Sender[] {
   const q = state.query.trim().toLowerCase();
   const list = senders().filter(
     (s) =>
       tabOf(s) === state.tab &&
+      matchesMethod(s) &&
       (!q || s.name.toLowerCase().includes(q) || s.email.includes(q) || s.lastSubject.toLowerCase().includes(q)),
   );
   const by: Record<Sort, (a: Sender, b: Sender) => number> = {
@@ -326,15 +342,15 @@ function renderHero() {
         <div class="row center">${monthSelect}<button class="primary" data-action="scan">${t.scan}</button></div>
       </div>`;
   } else {
-    const all = senders();
+    const newsletters = senders().filter((s) => s.kind !== "other");
     const pending = todo();
-    const emails = all.reduce((n, s) => n + s.count, 0);
     const auto = pending.filter((s) => methodOf(s) !== "link").length;
+    const folders = state.scan.folders ?? [];
     hero.innerHTML = `
       <div class="card hero">
         <div class="stats">
-          <div><strong>${all.length}</strong><span>${t.statLists}</span></div>
-          <div><strong>${emails.toLocaleString()}</strong><span>${t.statEmails}</span></div>
+          <div><strong>${newsletters.length}</strong><span>${t.statLists}</span></div>
+          <div><strong>${state.scan.messagesScanned.toLocaleString()}</strong><span>${t.statEmails}</span></div>
           <div><strong>${auto}</strong><span>${t.statAuto}</span></div>
         </div>
         ${
@@ -344,7 +360,9 @@ function renderHero() {
         }
         ${state.scanError ? errorBox(state.scanError) : ""}
         <div class="row small muted">
-          <span>${t.lastScan(dateFmt(state.scan.scannedAt))}</span>
+          <span>${t.lastScan(dateFmt(state.scan.scannedAt))}${
+            folders.length ? ` · <span title="${esc(folders.join(", "))}">${t.scannedFolders(folders.length)}</span>` : ""
+          }</span>
           ${monthSelect}
           <button class="link" data-action="scan">↻ ${t.rescan}</button>
         </div>
@@ -363,10 +381,10 @@ function renderList() {
     return;
   }
 
-  const counts: Record<Tab, number> = { todo: 0, kept: 0, done: 0 };
+  const counts: Record<Tab, number> = { todo: 0, other: 0, kept: 0, done: 0 };
   for (const s of senders()) counts[tabOf(s)]++;
   const rows = visibleSenders();
-  const selectable = state.tab === "todo";
+  const selectable = isActionTab(state.tab);
   const allSelected = selectable && rows.length > 0 && rows.every((s) => state.selected.has(s.key));
 
   // Only rebuild the toolbar once, so the search box keeps focus while typing.
@@ -376,6 +394,13 @@ function renderList() {
         <nav class="tabs" id="tabs"></nav>
         <div class="filters">
           <input id="search" type="search" placeholder="${t.search}" value="${esc(state.query)}" />
+          <select id="method" aria-label="${t.methodFilter}">
+            <option value="all">${t.methodAll}</option>
+            <option value="noClick">${t.methodNoClick}</option>
+            <option value="oneClick">${t.methodOneClick}</option>
+            <option value="email">${t.methodEmail}</option>
+            <option value="link">${t.methodLink}</option>
+          </select>
           <select id="sort">
             <option value="count">${t.sortCount}</option>
             <option value="recent">${t.sortRecent}</option>
@@ -390,6 +415,12 @@ function renderList() {
       state.query = search.value;
       renderList();
     });
+    const method = section.querySelector<HTMLSelectElement>("#method")!;
+    method.value = state.method;
+    method.addEventListener("change", () => {
+      state.method = method.value as MethodFilter;
+      renderList();
+    });
     const sort = section.querySelector<HTMLSelectElement>("#sort")!;
     sort.value = state.sort;
     sort.addEventListener("change", () => {
@@ -398,16 +429,17 @@ function renderList() {
     });
   }
 
-  section.querySelector("#tabs")!.innerHTML = (["todo", "kept", "done"] as Tab[])
+  section.querySelector("#tabs")!.innerHTML = (["todo", "other", "kept", "done"] as Tab[])
     .map(
       (tab) =>
         `<button class="tab ${state.tab === tab ? "active" : ""}" data-action="tab" data-tab="${tab}">
-          ${{ todo: t.tabTodo, kept: t.tabKept, done: t.tabDone }[tab]} <span class="count">${counts[tab]}</span>
+          ${{ todo: t.tabTodo, other: t.tabOther, kept: t.tabKept, done: t.tabDone }[tab]} <span class="count">${counts[tab]}</span>
         </button>`,
     )
     .join("");
 
   section.querySelector("#rows")!.innerHTML = `
+    ${state.tab === "other" ? `<p class="muted small tab-hint">${t.otherHint}</p>` : ""}
     ${
       selectable && rows.length
         ? `<label class="select-all"><input type="checkbox" data-action="select-all" ${allSelected ? "checked" : ""}/> ${t.selectAll}</label>`
@@ -417,7 +449,7 @@ function renderList() {
       ${rows.map(senderRow).join("") || `<li class="empty muted">${t.emptyFilter}</li>`}
     </ul>`;
 
-  const n = [...state.selected].filter((k) => senders().some((s) => s.key === k && tabOf(s) === "todo")).length;
+  const n = actionable().filter((s) => state.selected.has(s.key)).length;
   section.querySelector("#actionbar")!.innerHTML =
     selectable && n
       ? `<div class="actionbar">
@@ -444,7 +476,7 @@ function senderRow(s: Sender) {
   const key = esc(s.key);
 
   let actions = "";
-  if (state.tab === "todo") {
+  if (isActionTab(state.tab)) {
     actions = `${methodBadge(s)}<button class="ghost small" data-action="keep" data-key="${key}">☆ ${t.keep}</button>`;
   } else if (state.tab === "kept") {
     actions = `<button class="ghost small" data-action="unkeep" data-key="${key}">★ ${t.unkeep}</button>`;
@@ -455,7 +487,7 @@ function senderRow(s: Sender) {
 
   return `
     <li class="sender ${state.selected.has(s.key) ? "selected" : ""}">
-      ${state.tab === "todo" ? `<input type="checkbox" data-action="select" data-key="${key}" ${state.selected.has(s.key) ? "checked" : ""}/>` : ""}
+      ${isActionTab(state.tab) ? `<input type="checkbox" data-action="select" data-key="${key}" ${state.selected.has(s.key) ? "checked" : ""}/>` : ""}
       <div class="avatar" style="--h:${hue(s.email)}">${initial}</div>
       <div class="who">
         <div class="name">${esc(s.name)} ${stillSending ? `<span class="badge warn" title="${esc(t.stillSendingTip)}">${t.stillSending}</span>` : ""} ${kept ? "★" : ""}</div>
@@ -516,31 +548,49 @@ function renderModal() {
       const manual = m.outcomes.filter((o) => o.status === "manual");
       const failed = m.outcomes.filter((o) => o.status === "failed");
       const trashed = m.outcomes.reduce((n, o) => n + o.trashed, 0);
+      const tile = (tone: string, icon: string, n: number, label: string) => `
+        <div class="tile ${tone}">
+          <span class="ico">${icon}</span>
+          <strong>${n.toLocaleString()}</strong>
+          <span>${label}</span>
+        </div>`;
+      const opener = (o: Outcome) => {
+        const opened = m.opened.has(o.key);
+        return `<li>
+          <div class="avatar small" style="--h:${hue(o.key)}">${esc((o.name.trim()[0] ?? "?").toUpperCase())}</div>
+          <span class="grow">${esc(o.name)}</span>
+          <button class="${opened ? "ghost" : "primary"} small icon-btn" data-action="open-manual" data-key="${esc(o.key)}">
+            ${opened ? `${icons.check} ${t.opened}` : `${t.open} ${icons.external}`}
+          </button>
+        </li>`;
+      };
       body = `
-        <h2>${t.resultsTitle}</h2>
-        <p class="result ok">✓ ${t.resultsDone(done.length)}</p>
-        ${trashed ? `<p class="result ok">🗑 ${t.resultsTrashed(trashed)}</p>` : ""}
+        <div class="results-head">
+          <span class="big-ico">${icons.check}</span>
+          <h2>${t.resultsTitle}</h2>
+        </div>
+        <div class="result-grid">
+          ${tile("ok", icons.check, done.length, t.resultsDone(done.length))}
+          ${trashed ? tile("ok", icons.trash, trashed, t.resultsTrashed(trashed)) : ""}
+          ${manual.length ? tile("warn", icons.external, manual.length, t.resultsManual(manual.length)) : ""}
+          ${failed.length ? tile("err", icons.x, failed.length, t.resultsFailed(failed.length)) : ""}
+        </div>
         ${
           manual.length
-            ? `<p class="result warn">↗ ${t.resultsManual(manual.length)}</p>
+            ? `<h3>${t.resultsManualTitle}</h3>
                <p class="muted small">${t.resultsManualBody}</p>
-               <ul class="manual-list">
-                 ${manual
-                   .map(
-                     (o) => `<li><span>${esc(o.name)}</span>
-                       <button class="${m.opened.has(o.key) ? "ghost" : "primary"} small" data-action="open-manual" data-key="${esc(o.key)}">
-                         ${m.opened.has(o.key) ? `✓ ${t.opened}` : `${t.open} ↗`}</button></li>`,
-                   )
-                   .join("")}
-               </ul>
-               ${manual.length > 1 ? `<button class="ghost small" data-action="open-all-manual">${t.openAll}</button>` : ""}`
+               <ul class="manual-list">${manual.map(opener).join("")}</ul>
+               ${manual.length > 1 ? `<button class="ghost small icon-btn" data-action="open-all-manual">${t.openAll} ${icons.external}</button>` : ""}`
             : ""
         }
         ${
           failed.length
-            ? `<p class="result err">✕ ${t.resultsFailed(failed.length)}</p>
+            ? `<h3>${t.resultsFailedTitle}</h3>
                <ul class="failed-list">${failed
-                 .map((o) => `<li><strong>${esc(o.name)}</strong> — ${esc(errorText(o.error).message)}</li>`)
+                 .map(
+                   (o) => `<li><span class="mini-ico err">${icons.x}</span>
+                     <span class="grow"><strong>${esc(o.name)}</strong><br /><span class="muted small">${esc(errorText(o.error).message)}</span></span></li>`,
+                 )
                  .join("")}</ul>`
             : ""
         }
@@ -742,7 +792,7 @@ document.addEventListener("click", async (ev) => {
       showModal({ kind: "confirm", keys: todo().map((s) => s.key) });
       break;
     case "unsubscribe-selected": {
-      const keys = todo()
+      const keys = actionable()
         .map((s) => s.key)
         .filter((k) => state.selected.has(k));
       showModal({ kind: "confirm", keys });

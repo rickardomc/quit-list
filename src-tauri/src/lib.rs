@@ -1,3 +1,4 @@
+mod classify;
 mod listunsub;
 mod mail;
 mod providers;
@@ -309,12 +310,15 @@ async fn trash_all(
     progress: impl Fn(usize),
 ) -> Result<(), String> {
     let mut session = mail::imap_login(account, password).await?;
-    let folder = scan::find_trash(&mut session).await?;
+    let trash = scan::find_trash(&mut session).await?;
+    let folders = scan::scan_folders(&mut session).await?;
     for (i, outcome) in outcomes.iter_mut().enumerate() {
-        match scan::move_to_trash(&mut session, &folder, &outcome.key).await {
-            Ok(n) => outcome.trashed = n,
-            Err(e) => {
-                outcome.error.get_or_insert(e);
+        for folder in &folders {
+            match scan::move_to_trash(&mut session, folder, &trash, &outcome.key).await {
+                Ok(n) => outcome.trashed += n,
+                Err(e) => {
+                    outcome.error.get_or_insert(e);
+                }
             }
         }
         progress(i + 1);

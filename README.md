@@ -10,7 +10,8 @@ Quit List è un'app desktop gratuita e open source che trova nella tua casella t
 ## Come funziona
 
 1. **Connetti la tua email** (Gmail, Outlook, Yahoo, iCloud, Libero, Virgilio, Proton Mail Bridge, Fastmail, GMX… o qualsiasi server IMAP).
-2. **Scansiona**: l'app legge solo le *intestazioni* delle email (mittente, oggetto, `List-Unsubscribe`), mai il contenuto, e raggruppa i messaggi per mittente.
+2. **Scansiona**: l'app legge solo le *intestazioni* delle email (mittente, oggetto, `List-Unsubscribe`), mai il contenuto, e raggruppa i messaggi per mittente. Su Gmail analizza "Tutti i messaggi", quindi trova anche le newsletter archiviate; sugli altri provider la Posta in arrivo più l'eventuale cartella Archivio.
+   Molte aziende mettono il link di disiscrizione anche su ordini, ricevute e avvisi di sicurezza: l'app li riconosce (oggetto, intestazioni come `Precedence: bulk`, categorie di Gmail) e li separa nella scheda **Notifiche e ricevute**, esclusa da "Esci da tutte".
 3. **Premi "Esci da tutte"**. Per ogni mailing list Quit List usa il metodo migliore disponibile:
 
 | Metodo | Come | Serve fare qualcosa? |
@@ -24,6 +25,7 @@ Se la richiesta automatica fallisce, l'app ripiega da sola sull'email e poi sul 
 Altre funzioni:
 
 - **Tieni** i mittenti che vuoi continuare a ricevere: "Esci da tutte" li salta.
+- **Filtra per metodo** di disiscrizione (automatica, via email, sul sito, o solo quelle senza click).
 - **Sposta nel cestino** (opzionale) tutte le email già ricevute dalle liste che lasci.
 - **Controllo "continua a scrivere"**: alla scansione successiva vedi chi ha ignorato la disiscrizione e puoi riprovare.
 - Più account, interfaccia in italiano e inglese, tema chiaro/scuro.
@@ -122,9 +124,10 @@ Ispirato da [Paperweight](https://github.com/wslyvh/paperweight) di wslyvh. Quit
 Quit List is a free, open source desktop app that finds every newsletter and mailing list in your inbox and unsubscribes you from all of them at once. No subscriptions, no "Pro" tier, no ads: the project is funded by donations only.
 
 - **Connect** any IMAP account (Gmail and others via app passwords, Proton Mail via Bridge).
-- **Scan**: only headers are read (`From`, `Subject`, `List-Unsubscribe`), never message bodies, and the mailbox is opened read-only.
+- **Scan**: only headers are read (`From`, `Subject`, `List-Unsubscribe`), never message bodies, and the mailbox is opened read-only. On Gmail it scans "All Mail", so archived newsletters are found too.
+- **Newsletters vs. notifications**: receipts, orders and security alerts that carry an unsubscribe link anyway are detected and kept out of "Quit all".
 - **Quit all**: RFC 8058 one-click when available, otherwise the `mailto:` unsubscribe email sent from your own account, otherwise a list of links for you to open. Failed one-click requests fall back automatically.
-- **Keep** the senders you like, optionally **move** past emails to the trash, and see who **keeps sending** after you unsubscribed.
+- **Filter** by unsubscribe method, **keep** the senders you like, optionally **move** past emails to the trash, and see who **keeps sending** after you unsubscribed.
 - **Local-first**: no Quit List servers, no telemetry; passwords live in the OS keychain.
 
 Build with `npm install` and `npm run tauri dev` (see the requirements above). Licensed under GPL-3.0-or-later. Donations: [GitHub Sponsors](https://github.com/sponsors/rickardomc).
