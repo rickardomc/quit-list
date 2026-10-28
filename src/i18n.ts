@@ -1,5 +1,10 @@
 const it = {
   tagline: "Esci da tutte le mailing list. In un click.",
+  connectTitle: "Collega la tua casella",
+  factHeaders: "Legge solo mittente, oggetto e link di disiscrizione, mai il contenuto.",
+  factLocal: "La password resta nel portachiavi del tuo computer.",
+  factFree: "Gratis e open source, senza abbonamenti.",
+  license: "Licenza GPL-3.0",
   intro:
     "Quit List cerca nella tua casella newsletter e mailing list e ti disiscrive da tutte insieme. Gratis, open source, senza abbonamenti.",
   email: "Indirizzo email",
@@ -30,7 +35,7 @@ const it = {
   hint_virgilio: "Usa la password normale di Virgilio Mail.",
   hint_custom:
     "Non conosciamo questo provider: controlla i server nelle impostazioni avanzate se l'accesso fallisce.",
-  createAppPassword: "Crea la password per le app →",
+  createAppPassword: "Crea la password per le app",
 
   scanTitle: "Scansiona la tua casella",
   scanBody: "Leggiamo solo le intestazioni delle email (mittente, oggetto, link di disiscrizione), mai il contenuto.",
@@ -40,14 +45,25 @@ const it = {
   rescan: "Scansiona di nuovo",
   scanning: "Scansione in corso…",
   scanProgress: (done: number, total: number, lists: number) =>
-    `${done.toLocaleString()} di ${total.toLocaleString()} email · ${lists} mailing list trovate`,
+    `${done.toLocaleString()} di ${total.toLocaleString()} email analizzate, ${lists} mailing list trovate`,
 
-  statLists: "newsletter",
-  statEmails: "email analizzate",
-  statAuto: "senza click",
-  scannedFolders: (n: number) => (n === 1 ? "1 cartella analizzata" : `${n} cartelle analizzate`),
   quitAll: (n: number) => `Esci da tutte (${n})`,
-  nothingLeft: "Nessuna mailing list da gestire. Casella pulita! 🎉",
+  summaryLine: (n: number, perMonth: number) =>
+    `${n === 1 ? "1 newsletter" : `${n} newsletter`} ${n === 1 ? "ti scrive" : "ti scrivono"} ${
+      perMonth < 1 ? "meno di una volta al mese" : perMonth === 1 ? "circa una volta al mese" : `circa ${perMonth.toLocaleString("it")} volte al mese`
+    }.`,
+  summaryMeta: (scanned: number, folders: number, months: string) =>
+    `${scanned.toLocaleString("it")} email analizzate in ${folders === 1 ? "1 cartella" : `${folders} cartelle`}, ${months.toLowerCase()}.`,
+  colSender: "Mittente",
+  colSubject: "Ultimo oggetto",
+  colEmails: "Email",
+  colLast: "Ultima",
+  colMethod: "Metodo",
+  reportTitle: "Disiscrizioni inviate",
+  reportSaved: (perMonth: number) =>
+    perMonth < 1 ? "Riceverai qualche email in meno ogni mese." : perMonth === 1 ? "Circa una email in meno al mese." : `Circa ${perMonth.toLocaleString("it")} email in meno al mese.`,
+  stampDone: "Disiscritta",
+  nothingLeft: "Nessuna newsletter da lasciare. La casella è in ordine.",
   tabTodo: "Newsletter",
   tabOther: "Notifiche e ricevute",
   otherHint:
@@ -66,10 +82,8 @@ const it = {
   unsubscribe: "Disiscrivi",
   alsoTrash: "Sposta anche le loro email nel cestino",
   keep: "Tieni",
-  kept: "Tenuta",
   unkeep: "Non tenere",
   emails: (n: number) => (n === 1 ? "1 email" : `${n} email`),
-  lastSeen: "ultima",
   methodOneClick: "Automatica",
   methodEmail: "Via email",
   methodLink: "Sul sito",
@@ -79,7 +93,6 @@ const it = {
   unsubscribedOn: (d: string) => `Disiscritta il ${d}`,
   stillSending: "Continua a scrivere",
   stillSendingTip: "Hai ricevuto email dopo la disiscrizione",
-  retry: "Riprova",
   undo: "Annulla",
   emptyFilter: "Nessun risultato.",
 
@@ -92,7 +105,6 @@ const it = {
   working: "Disiscrizione in corso…",
   workingTrash: "Sposto le email nel cestino…",
 
-  resultsTitle: "Fatto!",
   resultsDone: (n: number): string => (n === 1 ? "disiscrizione completata" : "disiscrizioni completate"),
   resultsTrashed: (_n: number): string => "email nel cestino",
   resultsManual: (_n: number): string => "da confermare sul sito",
@@ -109,10 +121,12 @@ const it = {
   passwordNeededBody: (email: string) =>
     `Il portachiavi di sistema non è disponibile, quindi la password di ${email} non è stata salvata.`,
   passwordNotSaved: "Portachiavi di sistema non disponibile: la password ti verrà chiesta al prossimo avvio.",
-  addAccount: "+ Aggiungi account",
+  addAccount: "Aggiungi account",
   removeAccount: "Rimuovi account",
   removeConfirm: (email: string) => `Rimuovere ${email} da Quit List? Verranno cancellati i dati locali di questo account.`,
-  back: "← Indietro",
+  back: "Indietro",
+  removeTitle: "Rimuovere l'account?",
+  remove: "Rimuovi",
 
   donate: "Supporta il progetto",
   donateLong:
@@ -138,6 +152,11 @@ type Dict = typeof it;
 
 const en: Dict = {
   tagline: "Quit every mailing list. In one click.",
+  connectTitle: "Connect your inbox",
+  factHeaders: "Reads only the sender, subject and unsubscribe link, never the content.",
+  factLocal: "Your password stays in your computer's keychain.",
+  factFree: "Free and open source, no subscriptions.",
+  license: "GPL-3.0 license",
   intro:
     "Quit List finds the newsletters and mailing lists in your inbox and unsubscribes you from all of them at once. Free, open source, no subscriptions.",
   email: "Email address",
@@ -165,7 +184,7 @@ const en: Dict = {
   hint_libero: "Use your regular Libero Mail password.",
   hint_virgilio: "Use your regular Virgilio Mail password.",
   hint_custom: "We don't know this provider: check the servers in advanced settings if sign-in fails.",
-  createAppPassword: "Create an app password →",
+  createAppPassword: "Create an app password",
 
   scanTitle: "Scan your inbox",
   scanBody: "We only read email headers (sender, subject, unsubscribe links), never the content.",
@@ -175,14 +194,25 @@ const en: Dict = {
   rescan: "Scan again",
   scanning: "Scanning…",
   scanProgress: (done: number, total: number, lists: number) =>
-    `${done.toLocaleString()} of ${total.toLocaleString()} emails · ${lists} mailing lists found`,
+    `${done.toLocaleString()} of ${total.toLocaleString()} emails scanned, ${lists} mailing lists found`,
 
-  statLists: "newsletters",
-  statEmails: "emails scanned",
-  statAuto: "no click needed",
-  scannedFolders: (n: number) => (n === 1 ? "1 folder scanned" : `${n} folders scanned`),
   quitAll: (n: number) => `Quit all (${n})`,
-  nothingLeft: "No mailing lists left to handle. Clean inbox! 🎉",
+  summaryLine: (n: number, perMonth: number) =>
+    `${n === 1 ? "1 newsletter" : `${n} newsletters`} ${n === 1 ? "writes to you" : "write to you"} ${
+      perMonth < 1 ? "less than once a month" : perMonth === 1 ? "about once a month" : `about ${perMonth.toLocaleString("en")} times a month`
+    }.`,
+  summaryMeta: (scanned: number, folders: number, months: string) =>
+    `${scanned.toLocaleString("en")} emails scanned in ${folders === 1 ? "1 folder" : `${folders} folders`}, ${months.toLowerCase()}.`,
+  colSender: "Sender",
+  colSubject: "Last subject",
+  colEmails: "Emails",
+  colLast: "Last",
+  colMethod: "Method",
+  reportTitle: "Unsubscribes sent",
+  reportSaved: (perMonth: number) =>
+    perMonth < 1 ? "You'll get a few fewer emails every month." : perMonth === 1 ? "About one fewer email a month." : `About ${perMonth.toLocaleString("en")} fewer emails a month.`,
+  stampDone: "Unsubscribed",
+  nothingLeft: "No newsletters left to quit. Your inbox is in order.",
   tabTodo: "Newsletters",
   tabOther: "Notifications & receipts",
   otherHint:
@@ -201,10 +231,8 @@ const en: Dict = {
   unsubscribe: "Unsubscribe",
   alsoTrash: "Also move their emails to the trash",
   keep: "Keep",
-  kept: "Kept",
   unkeep: "Don't keep",
   emails: (n: number) => (n === 1 ? "1 email" : `${n} emails`),
-  lastSeen: "last",
   methodOneClick: "Automatic",
   methodEmail: "Via email",
   methodLink: "On website",
@@ -214,7 +242,6 @@ const en: Dict = {
   unsubscribedOn: (d: string) => `Unsubscribed on ${d}`,
   stillSending: "Still sending",
   stillSendingTip: "You received emails after unsubscribing",
-  retry: "Retry",
   undo: "Undo",
   emptyFilter: "No results.",
 
@@ -227,7 +254,6 @@ const en: Dict = {
   working: "Unsubscribing…",
   workingTrash: "Moving emails to the trash…",
 
-  resultsTitle: "Done!",
   resultsDone: (n: number): string => (n === 1 ? "unsubscribe completed" : "unsubscribes completed"),
   resultsTrashed: (n: number): string => (n === 1 ? "email moved to trash" : "emails moved to trash"),
   resultsManual: (n: number): string => (n === 1 ? "needs a click" : "need a click"),
@@ -244,10 +270,12 @@ const en: Dict = {
   passwordNeededBody: (email: string) =>
     `The system keychain is not available, so the password for ${email} was not saved.`,
   passwordNotSaved: "System keychain not available: you'll be asked for the password next time.",
-  addAccount: "+ Add account",
+  addAccount: "Add account",
   removeAccount: "Remove account",
   removeConfirm: (email: string) => `Remove ${email} from Quit List? Local data for this account will be deleted.`,
-  back: "← Back",
+  back: "Back",
+  removeTitle: "Remove this account?",
+  remove: "Remove",
 
   donate: "Support the project",
   donateLong:

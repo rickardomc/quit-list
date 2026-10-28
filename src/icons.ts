@@ -1,10 +1,48 @@
-/** Inline stroke icons; they inherit `currentColor` and size from CSS. */
-const svg = (paths: string) =>
-  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+/** Phosphor icons (MIT), inlined as SVG so they inherit `currentColor` and size from CSS. */
+import check from "@phosphor-icons/core/assets/regular/check.svg?raw";
+import x from "@phosphor-icons/core/assets/regular/x.svg?raw";
+import trash from "@phosphor-icons/core/assets/regular/trash.svg?raw";
+import external from "@phosphor-icons/core/assets/regular/arrow-square-out.svg?raw";
+import email from "@phosphor-icons/core/assets/regular/envelope-simple.svg?raw";
+import oneClick from "@phosphor-icons/core/assets/regular/lightning.svg?raw";
+import link from "@phosphor-icons/core/assets/regular/globe-simple.svg?raw";
+import star from "@phosphor-icons/core/assets/regular/star.svg?raw";
+import starFill from "@phosphor-icons/core/assets/fill/star-fill.svg?raw";
+import heart from "@phosphor-icons/core/assets/fill/heart-fill.svg?raw";
+import userMinus from "@phosphor-icons/core/assets/regular/user-minus.svg?raw";
+import refresh from "@phosphor-icons/core/assets/regular/arrow-clockwise.svg?raw";
+import search from "@phosphor-icons/core/assets/regular/magnifying-glass.svg?raw";
+import shield from "@phosphor-icons/core/assets/regular/shield-check.svg?raw";
+import lock from "@phosphor-icons/core/assets/regular/lock-simple.svg?raw";
+import back from "@phosphor-icons/core/assets/regular/caret-left.svg?raw";
+import warning from "@phosphor-icons/core/assets/regular/warning.svg?raw";
+import plus from "@phosphor-icons/core/assets/regular/plus.svg?raw";
+import newspaper from "@phosphor-icons/core/assets/regular/newspaper.svg?raw";
+import seal from "@phosphor-icons/core/assets/regular/seal-check.svg?raw";
+
+const prepare = (svg: string) => svg.replace("<svg ", '<svg aria-hidden="true" focusable="false" class="icon" ');
 
 export const icons = {
-  check: svg(`<path d="M5 12.5l4.5 4.5L19 7.5"/>`),
-  x: svg(`<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>`),
-  trash: svg(`<path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 12.5h9l1-12.5M10.2 11v5.5M13.8 11v5.5"/>`),
-  external: svg(`<path d="M14 4h6v6M20 4l-8.5 8.5M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>`),
+  check: prepare(check),
+  x: prepare(x),
+  trash: prepare(trash),
+  external: prepare(external),
+  email: prepare(email),
+  oneClick: prepare(oneClick),
+  link: prepare(link),
+  star: prepare(star),
+  starFill: prepare(starFill),
+  heart: prepare(heart),
+  userMinus: prepare(userMinus),
+  refresh: prepare(refresh),
+  search: prepare(search),
+  shield: prepare(shield),
+  lock: prepare(lock),
+  back: prepare(back),
+  warning: prepare(warning),
+  plus: prepare(plus),
+  newspaper: prepare(newspaper),
+  seal: prepare(seal),
 };
+
+export type IconName = keyof typeof icons;

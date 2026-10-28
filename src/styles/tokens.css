@@ -1,0 +1,89 @@
+/* Dose (Hallmark) adapted for an app screen: Geist instead of the theme's
+   faces (one family, per landing-page-design), Tailwind type and spacing
+   steps, and a night ground for dark mode. */
+:root {
+  color-scheme: light;
+
+  --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px;
+  --space-lg: 24px; --space-xl: 32px; --space-2xl: 40px; --space-3xl: 48px; --space-4xl: 64px;
+
+  --text-xs: 0.75rem; --lh-xs: 1rem;
+  --text-sm: 0.875rem; --lh-sm: 1.25rem;
+  --text-md: 1rem; --lh-md: 1.5rem;
+  --text-lg: 1.125rem; --lh-lg: 1.75rem;
+  --text-xl: 1.25rem; --lh-xl: 1.75rem;
+  --text-2xl: 1.5rem; --lh-2xl: 2rem;
+  --text-3xl: 1.875rem; --lh-3xl: 2.25rem;
+  --text-display: var(--text-3xl); --text-section: var(--text-xl); --text-title: var(--text-md);
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-micro: 200ms; --dur-short: 240ms; --dur-long: 500ms;
+
+  --z-raised: 10; --z-sticky: 200; --z-modal: 400; --z-toast: 500;
+
+  --color-paper: oklch(97.6% 0.011 88);
+  --color-paper-2: oklch(96.5% 0.02 160);
+  --color-paper-3: oklch(93% 0.036 160);
+  --color-surface: oklch(99.5% 0.004 88);
+  --color-ink: oklch(21% 0.025 170);
+  --color-ink-2: oklch(31% 0.02 170);
+  --color-muted: oklch(47% 0.024 165);
+  --color-rule: oklch(88% 0.02 140);
+  --color-rule-strong: oklch(80% 0.024 150);
+  --color-accent: oklch(50% 0.13 160);
+  --color-accent-deep: oklch(42% 0.11 162);
+  --color-accent-soft: oklch(91% 0.06 160);
+  --color-accent-text: oklch(37% 0.1 162);
+  --color-accent-ink: oklch(99% 0.006 160);
+  --color-focus: oklch(45% 0.14 160);
+  --color-error: oklch(52% 0.19 27);
+  --color-error-soft: oklch(94% 0.035 27);
+  --color-shell: var(--color-ink);
+  --color-shell-ink: oklch(96% 0.012 160);
+  --color-shell-muted: oklch(78% 0.02 160);
+  --color-shell-rule: oklch(34% 0.02 170);
+  --color-scrim: oklch(21% 0.025 170 / 0.45);
+  --glint: oklch(100% 0 0 / 0.7);
+
+  --font-body: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+  --font-display: var(--font-body); --display-weight: 600;
+
+  --container: 1040px; --gutter: 24px;
+
+  --radius-control: 8px; --radius-surface: 12px; --radius-dialog: 16px; --radius-pill: 9999px;
+  --control: 40px; --control-sm: 32px;
+
+  --shadow-lift: 0 1px 1px oklch(30% 0.03 165 / 0.08), 0 8px 24px -12px oklch(36% 0.06 165 / 0.28);
+  --shadow-float: 0 1px 2px oklch(30% 0.03 165 / 0.1), 0 18px 40px -16px oklch(36% 0.06 165 / 0.38);
+  --tracking-display: -0.03em;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --color-paper: oklch(15% 0.01 170);
+    --color-paper-2: oklch(19% 0.014 170);
+    --color-paper-3: oklch(24% 0.02 165);
+    --color-surface: oklch(19% 0.012 170);
+    --color-ink: oklch(94% 0.012 160);
+    --color-ink-2: oklch(84% 0.014 160);
+    --color-muted: oklch(70% 0.018 160);
+    --color-rule: oklch(28% 0.016 165);
+    --color-rule-strong: oklch(36% 0.02 165);
+    --color-accent: oklch(70% 0.12 160);
+    --color-accent-deep: oklch(62% 0.11 160);
+    --color-accent-soft: oklch(30% 0.05 160);
+    --color-accent-text: oklch(86% 0.09 160);
+    --color-accent-ink: oklch(16% 0.02 165);
+    --color-focus: oklch(74% 0.12 160);
+    --color-error: oklch(70% 0.15 27);
+    --color-error-soft: oklch(27% 0.05 27);
+    --color-shell: oklch(11% 0.01 170);
+    --color-shell-rule: oklch(24% 0.014 170);
+    --color-scrim: oklch(5% 0.01 170 / 0.6);
+    --glint: oklch(100% 0 0 / 0.08);
+    --shadow-lift: inset 0 0 0 1px var(--color-rule);
+    --shadow-float: inset 0 0 0 1px var(--color-rule-strong), 0 18px 40px -16px oklch(0% 0 0 / 0.6);
+  }
+}

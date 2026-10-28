@@ -32,6 +32,8 @@ Altre funzioni:
 
 <img src="docs/screenshots/results.png" alt="Risultato della disiscrizione" width="640" />
 
+<img src="docs/screenshots/dark.png" alt="Tema scuro" width="640" />
+
 ## Privacy
 
 - **Tutto in locale.** Nessun server di Quit List, nessuna telemetria, nessun account da creare.
@@ -75,6 +77,8 @@ Per creare l'installer:
 npm run tauri build
 ```
 
+Per lavorare sull'interfaccia senza un account email c'è una modalità demo, solo in sviluppo: avvia `npm run dev` e apri `http://localhost:1420/?demo` (account con una scansione già fatta) oppure `?demo=new` (primo avvio). Usa dati di esempio e non finisce mai nella build di produzione.
+
 Test del backend:
 
 ```bash
@@ -87,6 +91,9 @@ cargo test --manifest-path src-tauri/Cargo.toml
 src/                 interfaccia (TypeScript + Vite, nessun framework)
   main.ts            viste e azioni
   i18n.ts            testi italiano/inglese
+  styles.css         componenti; token e base in styles/
+  icons.ts           icone Phosphor
+  demo.ts            backend simulato per la modalità demo
   config.ts          link a sorgente e donazioni
 src-tauri/src/       backend (Rust)
   providers.rs       server IMAP/SMTP noti per dominio
@@ -98,6 +105,14 @@ src-tauri/src/       backend (Rust)
 ```
 
 Per pubblicare una release: crea un tag `vX.Y.Z` e fai push; il workflow `release.yml` compila gli installer e crea una release in bozza.
+
+## Design
+
+L'interfaccia segue le skill di design in [`.claude/skills`](.claude/skills/README.md) (Impeccable, Hallmark, landing-page-design): tema "Dose" di Hallmark adattato a un'app, font Geist e Geist Mono inclusi nell'app, icone Phosphor, tema chiaro e scuro. Il linter di Hallmark si lancia così, con il dev server avviato:
+
+```bash
+node .claude/skills/hallmark/scripts/sloplint.mjs src/styles.css index.html --genre modern-minimal --scope app --url "http://localhost:1420/?demo"
+```
 
 ## Roadmap
 

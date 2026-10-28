@@ -1,3 +1,5 @@
+import "@fontsource-variable/geist";
+import "@fontsource-variable/geist-mono";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   api,
@@ -26,8 +28,7 @@ type MethodFilter = "all" | "noClick" | Method;
 
 type Modal =
   | { kind: "confirm"; keys: string[] }
-  | { kind: "working"; phase: "unsubscribe" | "trash"; done: number; total: number }
-  | { kind: "results"; outcomes: Outcome[]; opened: Set<string> }
+  | { kind: "remove-account" }
   | { kind: "password"; account: AccountView; error?: string; busy?: boolean }
   | { kind: "donate" };
 
@@ -46,7 +47,9 @@ const state = {
   trash: false,
   months: 12,
   scanning: null as null | { done: number; total: number; lists: number },
-  scanError: null as string | null,
+  working: null as null | { phase: "unsubscribe" | "trash"; done: number; total: number },
+  report: null as null | { outcomes: Outcome[]; opened: Set<string>; perMonth: number },
+  error: null as string | null,
   modal: null as Modal | null,
 };
 
@@ -90,6 +93,12 @@ const senders = () => state.scan?.senders ?? [];
 const todo = () => senders().filter((s) => tabOf(s) === "todo");
 const actionable = () => senders().filter((s) => isActionTab(tabOf(s)));
 
+/** Emails a month these senders send, from the scanned period. */
+function perMonth(list: Sender[]): number {
+  const months = state.scan?.months || 1;
+  return Math.round(list.reduce((n, s) => n + s.count, 0) / months);
+}
+
 function visibleSenders(): Sender[] {
   const q = state.query.trim().toLowerCase();
   const list = senders().filter(
@@ -106,10 +115,17 @@ function visibleSenders(): Sender[] {
   return list.sort(by[state.sort]);
 }
 
+const initial = (name: string) => esc((name.trim()[0] ?? "?").toUpperCase());
+
 function errorBox(err: unknown) {
   const { message, detail } = errorText(err);
-  return `<div class="error">${esc(message)}${detail ? `<small>${esc(detail)}</small>` : ""}</div>`;
+  return `<div class="error" role="alert">${icons.warning}<div>${esc(message)}${detail ? `<small>${esc(detail)}</small>` : ""}</div></div>`;
 }
+
+const progressBar = (done: number, total: number) =>
+  `<div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${done}"><div style="--p:${
+    total ? done / total : 0
+  }"></div></div>`;
 
 async function open(url: string) {
   try {
@@ -130,7 +146,7 @@ async function loadAccounts() {
 
 async function loadAccountState() {
   state.selected.clear();
-  state.scanError = null;
+  state.error = null;
   if (!state.current) {
     state.scan = null;
     return;
@@ -150,38 +166,63 @@ async function requireUnlocked(): Promise<boolean> {
   return false;
 }
 
+// ---------- shared chrome ----------
+
+function footer() {
+  return `
+    <footer class="site">
+      <div class="container">
+        <div class="meta">
+          <span>Quit List</span>
+          <span>${t.license}</span>
+          <a href="#" class="link" data-open="${REPO_URL}">${t.sourceCode}</a>
+        </div>
+        <div class="lang" role="group" aria-label="Lingua / Language">
+          <button type="button" data-action="lang" data-lang="it" aria-pressed="${lang === "it"}">Italiano</button>
+          <button type="button" data-action="lang" data-lang="en" aria-pressed="${lang === "en"}">English</button>
+        </div>
+      </div>
+    </footer>`;
+}
+
 // ---------- connect view ----------
 
 function renderConnect() {
   const hasAccounts = state.accounts.length > 0;
   app.innerHTML = `
-    <main class="connect">
-      <div class="connect-card">
-        ${hasAccounts ? `<button class="link back" data-action="cancel-add">${t.back}</button>` : ""}
-        <div class="brand big"><img src="/logo.svg" alt="" /><span>Quit List</span></div>
+    <main class="container connect">
+      <section class="intro">
+        <div class="wordmark"><img src="/logo.svg" alt="" width="28" height="28" /><span>Quit List</span></div>
         <h1>${t.tagline}</h1>
-        <p class="muted">${t.intro}</p>
-        <form id="connect-form" autocomplete="off">
-          <label>${t.email}
-            <input name="email" type="email" required autofocus placeholder="nome@esempio.it" />
-          </label>
-          <div id="provider-hint" class="hint" hidden></div>
-          <label><span id="password-label">${t.password}</span>
-            <input name="password" type="password" required />
-          </label>
-          <details>
-            <summary>${t.advanced}</summary>
-            <label>${t.username}<input name="username" type="text" /></label>
-            ${serverFields("imap", t.imapServer)}
-            ${serverFields("smtp", t.smtpServer)}
-          </details>
-          <div id="connect-error"></div>
-          <button class="primary wide" type="submit">${t.connect}</button>
-          <p class="fineprint">🔒 ${t.privacy}</p>
-        </form>
-      </div>
-      ${footer()}
-    </main>`;
+        <p>${t.intro}</p>
+        <ul class="facts">
+          <li>${icons.newspaper}${t.factHeaders}</li>
+          <li>${icons.lock}${t.factLocal}</li>
+          <li>${icons.heart}${t.factFree}</li>
+        </ul>
+      </section>
+      <form id="connect-form" class="connect-card" autocomplete="off" novalidate>
+        ${hasAccounts ? `<button type="button" class="btn quiet small back" data-action="cancel-add">${icons.back}${t.back}</button>` : ""}
+        <h2>${t.connectTitle}</h2>
+        <label class="field">${t.email}
+          <input name="email" type="email" inputmode="email" autocomplete="email" required autofocus placeholder="nome@esempio.it" />
+        </label>
+        <div id="provider-hint" class="hint" hidden></div>
+        <label class="field"><span id="password-label">${t.password}</span>
+          <input name="password" type="password" autocomplete="current-password" required />
+        </label>
+        <details>
+          <summary>${t.advanced}</summary>
+          <label class="field">${t.username}<input name="username" type="text" autocomplete="username" /></label>
+          ${serverFields("imap", t.imapServer)}
+          ${serverFields("smtp", t.smtpServer)}
+        </details>
+        <div id="connect-error"></div>
+        <button class="btn primary large wide" type="submit">${t.connect}</button>
+        <p class="fineprint">${icons.shield}<span>${t.privacy}</span></p>
+      </form>
+    </main>
+    ${footer()}`;
 
   const form = document.querySelector<HTMLFormElement>("#connect-form")!;
   const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement;
@@ -201,8 +242,10 @@ function renderConnect() {
     const text = hintFor(p.id);
     hint.hidden = !text;
     hint.innerHTML = text
-      ? `<strong>${esc(p.name)}</strong> — ${esc(text)}${
-          p.appPasswordUrl ? ` <a href="#" data-open="${esc(p.appPasswordUrl)}">${t.createAppPassword}</a>` : ""
+      ? `<span><strong>${esc(p.name)}.</strong> ${esc(text)}</span>${
+          p.appPasswordUrl
+            ? `<a href="#" class="link" data-open="${esc(p.appPasswordUrl)}">${t.createAppPassword}${icons.external}</a>`
+            : ""
         }`
       : "";
     document.querySelector("#password-label")!.textContent = p.appPasswordUrl ? t.appPassword : t.password;
@@ -217,7 +260,17 @@ function renderConnect() {
 
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
+    const errorEl = document.querySelector<HTMLDivElement>("#connect-error")!;
     const email = field("email").value.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      errorEl.innerHTML = errorBox("invalid_address");
+      field("email").focus();
+      return;
+    }
+    if (!field("password").value) {
+      field("password").focus();
+      return;
+    }
     if (!preset) applyPreset(await api.detectProvider(email));
     const servers: ServerSettings = {
       imapHost: field("imapHost").value.trim(),
@@ -228,7 +281,6 @@ function renderConnect() {
       smtpSecurity: field("smtpSecurity").value as ServerSettings["smtpSecurity"],
     };
     const button = form.querySelector<HTMLButtonElement>("button[type=submit]")!;
-    const errorEl = document.querySelector<HTMLDivElement>("#connect-error")!;
     button.disabled = true;
     button.textContent = t.connecting;
     errorEl.innerHTML = "";
@@ -237,6 +289,7 @@ function renderConnect() {
       await loadAccounts();
       state.current = res.account.id;
       state.addingAccount = false;
+      state.report = null;
       await loadAccountState();
       render();
       if (!res.passwordSaved) toast(t.passwordNotSaved);
@@ -253,7 +306,7 @@ function serverFields(prefix: "imap" | "smtp", label: string) {
   return `
     <fieldset class="server">
       <legend>${label}</legend>
-      <input name="${prefix}Host" type="text" required />
+      <input name="${prefix}Host" type="text" required aria-label="${label}" />
       <input name="${prefix}Port" type="number" min="1" max="65535" required aria-label="${t.port}" />
       <select name="${prefix}Security" aria-label="${t.security}">
         <option value="tls">SSL/TLS</option>
@@ -264,35 +317,27 @@ function serverFields(prefix: "imap" | "smtp", label: string) {
 
 // ---------- main view ----------
 
-function footer() {
-  return `
-    <footer>
-      <span>Quit List · GPL-3.0 · <a href="#" data-open="${REPO_URL}">${t.sourceCode}</a></span>
-      <span class="lang">
-        <button class="link ${lang === "it" ? "active" : ""}" data-action="lang" data-lang="it">IT</button> ·
-        <button class="link ${lang === "en" ? "active" : ""}" data-action="lang" data-lang="en">EN</button>
-      </span>
-    </footer>`;
-}
-
 function renderMain() {
   const acc = account()!;
   app.innerHTML = `
     <header class="topbar">
-      <div class="brand"><img src="/logo.svg" alt="" /><span>Quit List</span></div>
-      <div class="topbar-right">
-        <select id="account-select" aria-label="Account">
-          ${state.accounts
-            .map((a) => `<option value="${esc(a.id)}" ${a.id === acc.id ? "selected" : ""}>${esc(a.email)}</option>`)
-            .join("")}
-          <option value="__add">${t.addAccount}</option>
-        </select>
-        <button class="ghost" data-action="remove-account" title="${t.removeAccount}">⋯</button>
-        <button class="donate" data-action="donate">♥ ${t.donate}</button>
+      <div class="container">
+        <div class="wordmark"><img src="/logo.svg" alt="" width="28" height="28" /><span>Quit List</span></div>
+        <div class="topbar-actions">
+          <select id="account-select" aria-label="Account">
+            ${state.accounts
+              .map((a) => `<option value="${esc(a.id)}" ${a.id === acc.id ? "selected" : ""}>${esc(a.email)}</option>`)
+              .join("")}
+            <option value="__add">${t.addAccount}</option>
+          </select>
+          <button type="button" class="btn icon-only" data-action="remove-account" aria-label="${t.removeAccount}" title="${t.removeAccount}">${icons.userMinus}</button>
+          <button type="button" class="btn" data-action="donate">${icons.heart.replace('class="icon"', 'class="icon heart"')}${t.donate}</button>
+        </div>
       </div>
     </header>
-    <main class="content">
-      <section id="hero"></section>
+    <main class="content container">
+      <section id="summary" aria-live="polite"></section>
+      <section id="report"></section>
       <section id="list-section"></section>
     </main>
     ${footer()}`;
@@ -303,74 +348,159 @@ function renderMain() {
       state.addingAccount = true;
     } else {
       state.current = value;
+      state.report = null;
       await loadAccountState();
     }
     render();
   });
 
-  renderHero();
+  renderSummary();
+  renderReport();
   renderList();
 }
 
-function renderHero() {
-  const hero = document.querySelector<HTMLElement>("#hero");
-  if (!hero) return;
+function monthSelect() {
+  return `
+    <select id="months" aria-label="${t.scanPeriod}">
+      ${MONTH_OPTIONS.map((m) => `<option value="${m}" ${m === state.months ? "selected" : ""}>${t.months(m)}</option>`).join("")}
+    </select>`;
+}
+
+function renderSummary() {
+  const el = document.querySelector<HTMLElement>("#summary");
+  if (!el) return;
 
   if (state.scanning) {
     const { done, total, lists } = state.scanning;
-    const pct = total ? Math.round((done / total) * 100) : 0;
-    hero.innerHTML = `
-      <div class="card center">
-        <h2>${t.scanning}</h2>
-        <div class="progress"><div style="width:${pct}%"></div></div>
-        <p class="muted">${t.scanProgress(done, total, lists)}</p>
+    el.innerHTML = `
+      <div class="summary">
+        <h1>${t.scanning}</h1>
+        ${progressBar(done, total)}
+        <p class="meta">${t.scanProgress(done, total, lists)}</p>
       </div>`;
     return;
   }
 
-  const monthSelect = `
-    <select id="months" aria-label="${t.scanPeriod}">
-      ${MONTH_OPTIONS.map((m) => `<option value="${m}" ${m === state.months ? "selected" : ""}>${t.months(m)}</option>`).join("")}
-    </select>`;
+  if (state.working) {
+    const { phase, done, total } = state.working;
+    el.innerHTML = `
+      <div class="summary">
+        <h1>${phase === "trash" ? t.workingTrash : t.working}</h1>
+        ${progressBar(done, total)}
+        <p class="meta">${done} / ${total}</p>
+      </div>`;
+    return;
+  }
 
   if (!state.scan) {
-    hero.innerHTML = `
-      <div class="card center">
-        <h2>${t.scanTitle}</h2>
+    el.innerHTML = `
+      <div class="empty-state">
+        <h1>${t.scanTitle}</h1>
         <p class="muted">${t.scanBody}</p>
-        ${state.scanError ? errorBox(state.scanError) : ""}
-        <div class="row center">${monthSelect}<button class="primary" data-action="scan">${t.scan}</button></div>
+        ${state.error ? errorBox(state.error) : ""}
+        <div class="row">${monthSelect()}<button type="button" class="btn primary large" data-action="scan">${t.scan}</button></div>
       </div>`;
   } else {
-    const newsletters = senders().filter((s) => s.kind !== "other");
     const pending = todo();
-    const auto = pending.filter((s) => methodOf(s) !== "link").length;
-    const folders = state.scan.folders ?? [];
-    hero.innerHTML = `
-      <div class="card hero">
-        <div class="stats">
-          <div><strong>${newsletters.length}</strong><span>${t.statLists}</span></div>
-          <div><strong>${state.scan.messagesScanned.toLocaleString()}</strong><span>${t.statEmails}</span></div>
-          <div><strong>${auto}</strong><span>${t.statAuto}</span></div>
-        </div>
-        ${
-          pending.length
-            ? `<button class="primary huge" data-action="quit-all">${t.quitAll(pending.length)}</button>`
-            : `<p class="success">${t.nothingLeft}</p>`
-        }
-        ${state.scanError ? errorBox(state.scanError) : ""}
-        <div class="row small muted">
-          <span>${t.lastScan(dateFmt(state.scan.scannedAt))}${
-            folders.length ? ` · <span title="${esc(folders.join(", "))}">${t.scannedFolders(folders.length)}</span>` : ""
-          }</span>
-          ${monthSelect}
-          <button class="link" data-action="scan">↻ ${t.rescan}</button>
+    const scan = state.scan;
+    el.innerHTML = `
+      <div class="summary">
+        <h1>${pending.length ? t.summaryLine(pending.length, perMonth(pending)) : t.nothingLeft}</h1>
+        <p class="meta">
+          <span>${t.summaryMeta(scan.messagesScanned, scan.folders?.length || 1, t.months(scan.months))}</span>
+          <span>${t.lastScan(dateFmt(scan.scannedAt))}</span>
+        </p>
+        ${state.error ? errorBox(state.error) : ""}
+        <div class="actions">
+          ${pending.length ? `<button type="button" class="btn primary large" data-action="quit-all">${t.quitAll(pending.length)}</button>` : ""}
+          <span class="period">
+            ${monthSelect()}
+            <button type="button" class="btn" data-action="scan">${icons.refresh}${t.rescan}</button>
+          </span>
         </div>
       </div>`;
   }
   document.querySelector<HTMLSelectElement>("#months")!.addEventListener("change", (e) => {
     state.months = Number((e.target as HTMLSelectElement).value);
   });
+}
+
+function renderReport() {
+  const el = document.querySelector<HTMLElement>("#report");
+  if (!el) return;
+  const r = state.report;
+  if (!r || state.working) {
+    el.innerHTML = "";
+    return;
+  }
+  const done = r.outcomes.filter((o) => o.status === "done");
+  const manual = r.outcomes.filter((o) => o.status === "manual");
+  const failed = r.outcomes.filter((o) => o.status === "failed");
+  const trashed = r.outcomes.reduce((n, o) => n + o.trashed, 0);
+  const outcome = (cls: string, icon: string, n: number, label: string) => `
+    <li class="outcome ${cls}">
+      <span class="ring">${icon}</span>
+      <div><strong>${n.toLocaleString(lang)}</strong><span>${label}</span></div>
+    </li>`;
+
+  el.innerHTML = `
+    <div class="report">
+      <div class="report-head">
+        <div>
+          <h2>${t.reportTitle}</h2>
+          <p>${t.reportSaved(r.perMonth)}</p>
+        </div>
+        <button type="button" class="btn quiet icon-only" data-action="close-report" aria-label="${t.close}" title="${t.close}">${icons.x}</button>
+      </div>
+      <ul class="outcomes">
+        ${outcome("", icons.check, done.length, t.resultsDone(done.length))}
+        ${trashed ? outcome("", icons.trash, trashed, t.resultsTrashed(trashed)) : ""}
+        ${manual.length ? outcome("pending", icons.external, manual.length, t.resultsManual(manual.length)) : ""}
+        ${failed.length ? outcome("failed", icons.x, failed.length, t.resultsFailed(failed.length)) : ""}
+      </ul>
+      ${
+        manual.length
+          ? `<div class="section">
+              <h3>${t.resultsManualTitle}</h3>
+              <p class="muted small">${t.resultsManualBody}</p>
+              <ul class="plain-list">
+                ${manual
+                  .map((o) => {
+                    const opened = r.opened.has(o.key);
+                    return `<li>
+                      <span class="avatar">${initial(o.name)}</span>
+                      <span class="grow"><strong>${esc(o.name)}</strong><span class="muted small">${esc(o.key)}</span></span>
+                      ${
+                        opened
+                          ? `<span class="stamp link">${t.opened}</span>`
+                          : `<button type="button" class="btn primary small" data-action="open-manual" data-key="${esc(o.key)}">${t.open}${icons.external}</button>`
+                      }
+                    </li>`;
+                  })
+                  .join("")}
+              </ul>
+              ${manual.length > 1 ? `<div><button type="button" class="btn small" data-action="open-all-manual">${t.openAll}${icons.external}</button></div>` : ""}
+            </div>`
+          : ""
+      }
+      ${
+        failed.length
+          ? `<div class="section">
+              <h3>${t.resultsFailedTitle}</h3>
+              <ul class="plain-list">
+                ${failed
+                  .map(
+                    (o) => `<li>
+                      <span class="avatar">${initial(o.name)}</span>
+                      <span class="grow"><strong>${esc(o.name)}</strong><span class="muted small">${esc(errorText(o.error).message)}</span></span>
+                    </li>`,
+                  )
+                  .join("")}
+              </ul>
+            </div>`
+          : ""
+      }
+    </div>`;
 }
 
 function renderList() {
@@ -391,9 +521,11 @@ function renderList() {
   if (!section.querySelector("#toolbar")) {
     section.innerHTML = `
       <div id="toolbar">
-        <nav class="tabs" id="tabs"></nav>
+        <div class="tabs" id="tabs" role="tablist"></div>
         <div class="filters">
-          <input id="search" type="search" placeholder="${t.search}" value="${esc(state.query)}" />
+          <label class="search">${icons.search}
+            <input id="search" type="search" placeholder="${t.search}" aria-label="${t.search}" value="${esc(state.query)}" />
+          </label>
           <select id="method" aria-label="${t.methodFilter}">
             <option value="all">${t.methodAll}</option>
             <option value="noClick">${t.methodNoClick}</option>
@@ -401,14 +533,14 @@ function renderList() {
             <option value="email">${t.methodEmail}</option>
             <option value="link">${t.methodLink}</option>
           </select>
-          <select id="sort">
+          <select id="sort" aria-label="${t.sortCount}">
             <option value="count">${t.sortCount}</option>
             <option value="recent">${t.sortRecent}</option>
             <option value="name">${t.sortName}</option>
           </select>
         </div>
       </div>
-      <div id="rows"></div>
+      <div id="rows" role="tabpanel"></div>
       <div id="actionbar"></div>`;
     const search = section.querySelector<HTMLInputElement>("#search")!;
     search.addEventListener("input", () => {
@@ -432,82 +564,89 @@ function renderList() {
   section.querySelector("#tabs")!.innerHTML = (["todo", "other", "kept", "done"] as Tab[])
     .map(
       (tab) =>
-        `<button class="tab ${state.tab === tab ? "active" : ""}" data-action="tab" data-tab="${tab}">
-          ${{ todo: t.tabTodo, other: t.tabOther, kept: t.tabKept, done: t.tabDone }[tab]} <span class="count">${counts[tab]}</span>
+        `<button type="button" class="tab" role="tab" aria-selected="${state.tab === tab}" data-action="tab" data-tab="${tab}">
+          ${{ todo: t.tabTodo, other: t.tabOther, kept: t.tabKept, done: t.tabDone }[tab]}<span class="count">${counts[tab]}</span>
         </button>`,
     )
     .join("");
 
   section.querySelector("#rows")!.innerHTML = `
-    ${state.tab === "other" ? `<p class="muted small tab-hint">${t.otherHint}</p>` : ""}
-    ${
-      selectable && rows.length
-        ? `<label class="select-all"><input type="checkbox" data-action="select-all" ${allSelected ? "checked" : ""}/> ${t.selectAll}</label>`
-        : ""
-    }
-    <ul class="senders">
-      ${rows.map(senderRow).join("") || `<li class="empty muted">${t.emptyFilter}</li>`}
-    </ul>`;
+    ${state.tab === "other" ? `<p class="tab-hint">${t.otherHint}</p>` : ""}
+    <div class="senders ${selectable ? "" : "no-select"}" role="table">
+      <div class="head" role="row">
+        ${
+          selectable
+            ? `<span class="select-head" role="columnheader"><input type="checkbox" data-action="select-all" aria-label="${t.selectAll}" ${allSelected ? "checked" : ""} ${rows.length ? "" : "disabled"}/></span>`
+            : ""
+        }
+        <span role="columnheader">${t.colSender}</span>
+        <span role="columnheader" class="col-subject">${t.colSubject}</span>
+        <span role="columnheader" class="num col-num">${t.colEmails}</span>
+        <span role="columnheader" class="col-when">${t.colLast}</span>
+        <span role="columnheader" class="col-method">${t.colMethod}</span>
+        <span role="columnheader"><span class="visually-hidden">${t.keep}</span></span>
+      </div>
+      ${rows.map(senderRow).join("") || `<p class="empty-row">${t.emptyFilter}</p>`}
+    </div>`;
 
   const n = actionable().filter((s) => state.selected.has(s.key)).length;
   section.querySelector("#actionbar")!.innerHTML =
     selectable && n
-      ? `<div class="actionbar">
-          <span>${t.selected(n)}</span>
+      ? `<div class="actionbar" role="region" aria-label="${t.selected(n)}">
+          <strong>${t.selected(n)}</strong>
           <label class="check"><input type="checkbox" data-action="toggle-trash" ${state.trash ? "checked" : ""}/> ${t.alsoTrash}</label>
-          <button class="primary" data-action="unsubscribe-selected">${t.unsubscribe}</button>
+          <button type="button" class="btn primary" data-action="unsubscribe-selected">${t.unsubscribe}</button>
         </div>`
       : "";
 }
 
-function methodBadge(s: Sender) {
+function methodTag(s: Sender) {
   const m = methodOf(s);
-  const [label, tip] = {
-    oneClick: [t.methodOneClick, t.methodOneClickTip],
-    email: [t.methodEmail, t.methodEmailTip],
-    link: [t.methodLink, t.methodLinkTip],
+  const [label, tip, icon] = {
+    oneClick: [t.methodOneClick, t.methodOneClickTip, icons.oneClick],
+    email: [t.methodEmail, t.methodEmailTip, icons.email],
+    link: [t.methodLink, t.methodLinkTip, icons.link],
   }[m];
-  return `<span class="badge ${m}" title="${esc(tip)}">${label}</span>`;
+  return `<span class="tag ${m === "link" ? "manual" : ""}" title="${esc(tip)}">${icon}${label}</span>`;
 }
 
 function senderRow(s: Sender) {
   const { entry, stillSending, kept } = senderStatus(s);
-  const initial = esc((s.name.trim()[0] ?? "?").toUpperCase());
   const key = esc(s.key);
+  const selected = state.selected.has(s.key);
 
-  let actions = "";
+  let method = methodTag(s);
+  let action = "";
   if (isActionTab(state.tab)) {
-    actions = `${methodBadge(s)}<button class="ghost small" data-action="keep" data-key="${key}">☆ ${t.keep}</button>`;
+    action = `<button type="button" class="btn quiet small" data-action="keep" data-key="${key}">${icons.star}${t.keep}</button>`;
   } else if (state.tab === "kept") {
-    actions = `<button class="ghost small" data-action="unkeep" data-key="${key}">★ ${t.unkeep}</button>`;
+    action = `<button type="button" class="btn quiet small" data-action="unkeep" data-key="${key}">${icons.starFill}${t.unkeep}</button>`;
   } else if (entry) {
-    actions = `<span class="muted small">${t.unsubscribedOn(dateFmt(entry.at))}</span>
-      <button class="ghost small" data-action="undo" data-key="${key}">${t.undo}</button>`;
+    method = `<span class="stamp ${entry.method === "link" ? "link" : ""}" title="${esc(t.unsubscribedOn(dateFmt(entry.at)))}">${t.stampDone}<span>${dateFmt(entry.at)}</span></span>`;
+    action = `<button type="button" class="btn quiet small" data-action="undo" data-key="${key}">${t.undo}</button>`;
   }
 
   return `
-    <li class="sender ${state.selected.has(s.key) ? "selected" : ""}">
-      ${isActionTab(state.tab) ? `<input type="checkbox" data-action="select" data-key="${key}" ${state.selected.has(s.key) ? "checked" : ""}/>` : ""}
-      <div class="avatar" style="--h:${hue(s.email)}">${initial}</div>
-      <div class="who">
-        <div class="name">${esc(s.name)} ${stillSending ? `<span class="badge warn" title="${esc(t.stillSendingTip)}">${t.stillSending}</span>` : ""} ${kept ? "★" : ""}</div>
-        <div class="meta">${esc(s.email)} · ${esc(s.lastSubject)}</div>
+    <div class="sender ${selected ? "selected" : ""}" role="row">
+      ${isActionTab(state.tab) ? `<span role="cell"><input type="checkbox" data-action="select" data-key="${key}" aria-label="${esc(s.name)}" ${selected ? "checked" : ""}/></span>` : ""}
+      <div class="who" role="cell">
+        <span class="avatar">${initial(s.name)}</span>
+        <div class="text">
+          <div class="name"><span>${esc(s.name)}</span>${kept ? `<span class="kept-mark" title="${t.tabKept}">${icons.starFill}</span>` : ""}${
+            stillSending ? `<span class="tag warn" title="${esc(t.stillSendingTip)}">${icons.warning}${t.stillSending}</span>` : ""
+          }</div>
+          <div class="email">${esc(s.email)}</div>
+        </div>
       </div>
-      <div class="numbers">
-        <strong>${t.emails(s.count)}</strong>
-        <span class="muted small">${t.lastSeen} ${relative(s.lastSeen)}</span>
-      </div>
-      <div class="actions">${actions}</div>
-    </li>`;
+      <span class="subject col-subject" role="cell" title="${esc(s.lastSubject)}">${esc(s.lastSubject)}</span>
+      <span class="num col-num" role="cell">${s.count.toLocaleString(lang)}</span>
+      <span class="when col-when" role="cell">${relative(s.lastSeen)}</span>
+      <span class="col-method" role="cell">${method}</span>
+      <span class="act" role="cell">${action}</span>
+    </div>`;
 }
 
-function hue(s: string) {
-  let h = 0;
-  for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360;
-  return h;
-}
-
-// ---------- modals ----------
+// ---------- dialogs ----------
 
 function showModal(m: Modal | null) {
   state.modal = m;
@@ -526,102 +665,51 @@ function renderModal() {
       const chosen = senders().filter((s) => m.keys.includes(s.key));
       const manual = chosen.filter((s) => methodOf(s) === "link").length;
       body = `
-        <h2>${t.confirmTitle(chosen.length)}</h2>
+        <h2 id="dialog-title">${t.confirmTitle(chosen.length)}</h2>
         <p>${t.confirmBody(chosen.length - manual, manual)}</p>
         <label class="check"><input type="checkbox" data-action="toggle-trash" ${state.trash ? "checked" : ""}/> ${t.alsoTrash}</label>
         <div class="row end">
-          <button class="ghost" data-action="close-modal">${t.cancel}</button>
-          <button class="primary" data-action="run-unsubscribe">${t.confirm}</button>
+          <button type="button" class="btn" data-action="close-modal">${t.cancel}</button>
+          <button type="button" class="btn primary" data-action="run-unsubscribe" autofocus>${t.confirm}</button>
         </div>`;
       break;
     }
-    case "working": {
-      const pct = m.total ? Math.round((m.done / m.total) * 100) : 0;
+    case "remove-account": {
+      const acc = account();
       body = `
-        <h2>${m.phase === "trash" ? t.workingTrash : t.working}</h2>
-        <div class="progress"><div style="width:${pct}%"></div></div>
-        <p class="muted">${m.done} / ${m.total}</p>`;
-      break;
-    }
-    case "results": {
-      const done = m.outcomes.filter((o) => o.status === "done");
-      const manual = m.outcomes.filter((o) => o.status === "manual");
-      const failed = m.outcomes.filter((o) => o.status === "failed");
-      const trashed = m.outcomes.reduce((n, o) => n + o.trashed, 0);
-      const tile = (tone: string, icon: string, n: number, label: string) => `
-        <div class="tile ${tone}">
-          <span class="ico">${icon}</span>
-          <strong>${n.toLocaleString()}</strong>
-          <span>${label}</span>
+        <h2 id="dialog-title">${t.removeTitle}</h2>
+        <p>${acc ? esc(t.removeConfirm(acc.email)) : ""}</p>
+        <div class="row end">
+          <button type="button" class="btn" data-action="close-modal" autofocus>${t.cancel}</button>
+          <button type="button" class="btn primary" data-action="confirm-remove">${t.remove}</button>
         </div>`;
-      const opener = (o: Outcome) => {
-        const opened = m.opened.has(o.key);
-        return `<li>
-          <div class="avatar small" style="--h:${hue(o.key)}">${esc((o.name.trim()[0] ?? "?").toUpperCase())}</div>
-          <span class="grow">${esc(o.name)}</span>
-          <button class="${opened ? "ghost" : "primary"} small icon-btn" data-action="open-manual" data-key="${esc(o.key)}">
-            ${opened ? `${icons.check} ${t.opened}` : `${t.open} ${icons.external}`}
-          </button>
-        </li>`;
-      };
-      body = `
-        <div class="results-head">
-          <span class="big-ico">${icons.check}</span>
-          <h2>${t.resultsTitle}</h2>
-        </div>
-        <div class="result-grid">
-          ${tile("ok", icons.check, done.length, t.resultsDone(done.length))}
-          ${trashed ? tile("ok", icons.trash, trashed, t.resultsTrashed(trashed)) : ""}
-          ${manual.length ? tile("warn", icons.external, manual.length, t.resultsManual(manual.length)) : ""}
-          ${failed.length ? tile("err", icons.x, failed.length, t.resultsFailed(failed.length)) : ""}
-        </div>
-        ${
-          manual.length
-            ? `<h3>${t.resultsManualTitle}</h3>
-               <p class="muted small">${t.resultsManualBody}</p>
-               <ul class="manual-list">${manual.map(opener).join("")}</ul>
-               ${manual.length > 1 ? `<button class="ghost small icon-btn" data-action="open-all-manual">${t.openAll} ${icons.external}</button>` : ""}`
-            : ""
-        }
-        ${
-          failed.length
-            ? `<h3>${t.resultsFailedTitle}</h3>
-               <ul class="failed-list">${failed
-                 .map(
-                   (o) => `<li><span class="mini-ico err">${icons.x}</span>
-                     <span class="grow"><strong>${esc(o.name)}</strong><br /><span class="muted small">${esc(errorText(o.error).message)}</span></span></li>`,
-                 )
-                 .join("")}</ul>`
-            : ""
-        }
-        <div class="row end"><button class="primary" data-action="close-modal">${t.close}</button></div>`;
       break;
     }
     case "password":
       body = `
-        <h2>${t.passwordNeeded}</h2>
-        <p class="muted">${t.passwordNeededBody(esc(m.account.email))}</p>
-        <form id="password-form">
-          <input name="password" type="password" required autofocus />
+        <h2 id="dialog-title">${t.passwordNeeded}</h2>
+        <p>${t.passwordNeededBody(esc(m.account.email))}</p>
+        <form id="password-form" class="field">
+          <input name="password" type="password" autocomplete="current-password" aria-label="${t.password}" required autofocus />
           ${m.error ? errorBox(m.error) : ""}
           <div class="row end">
-            <button type="button" class="ghost" data-action="close-modal">${t.cancel}</button>
-            <button class="primary" ${m.busy ? "disabled" : ""}>${m.busy ? t.connecting : t.connect}</button>
+            <button type="button" class="btn" data-action="close-modal">${t.cancel}</button>
+            <button type="submit" class="btn primary" ${m.busy ? "disabled" : ""}>${m.busy ? t.connecting : t.connect}</button>
           </div>
         </form>`;
       break;
     case "donate":
       body = `
-        <h2>♥ ${t.donate}</h2>
+        <h2 id="dialog-title">${t.donate}</h2>
         <p>${t.donateLong}</p>
         <div class="donate-links">
-          ${DONATION_LINKS.map((d) => `<button class="ghost" data-open="${esc(d.url)}">${esc(d.label)}</button>`).join("")}
+          ${DONATION_LINKS.map((d) => `<button type="button" class="btn primary" data-open="${esc(d.url)}">${icons.heart}${esc(d.label)}${icons.external}</button>`).join("")}
         </div>
-        <div class="row end"><button class="primary" data-action="close-modal">${t.close}</button></div>`;
+        <div class="row end"><button type="button" class="btn" data-action="close-modal">${t.close}</button></div>`;
       break;
   }
-  const dismissable = m.kind !== "working";
-  modalRoot.innerHTML = `<div class="overlay" ${dismissable ? 'data-action="overlay"' : ""}><div class="modal" role="dialog" aria-modal="true">${body}</div></div>`;
+  modalRoot.innerHTML = `<div class="overlay" data-action="overlay"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">${body}</div></div>`;
+  modalRoot.querySelector<HTMLElement>("[autofocus]")?.focus();
 
   if (m.kind === "password") {
     document.querySelector<HTMLFormElement>("#password-form")!.addEventListener("submit", async (ev) => {
@@ -647,6 +735,7 @@ function toast(text: string) {
   if (!el) {
     el = document.createElement("div");
     el.className = "toast";
+    el.setAttribute("role", "status");
     document.body.append(el);
   }
   el.textContent = text;
@@ -660,19 +749,21 @@ async function startScan() {
   const acc = account();
   if (!acc || state.scanning || !(await requireUnlocked())) return;
   state.scanning = { done: 0, total: 0, lists: 0 };
-  state.scanError = null;
-  renderHero();
+  state.error = null;
+  state.report = null;
+  renderSummary();
+  renderReport();
   renderList();
   const unlisten = await onScanProgress((p) => {
     state.scanning = p;
-    renderHero();
+    renderSummary();
   });
   try {
     state.scan = await api.scanInbox(acc.id, state.months);
     state.selected.clear();
     state.tab = "todo";
   } catch (e) {
-    state.scanError = String(e);
+    state.error = String(e);
   } finally {
     unlisten();
     state.scanning = null;
@@ -683,19 +774,27 @@ async function startScan() {
 async function runUnsubscribe(keys: string[]) {
   const acc = account();
   if (!acc || !keys.length || !(await requireUnlocked())) return;
-  showModal({ kind: "working", phase: "unsubscribe", done: 0, total: keys.length });
+  showModal(null);
+  const leaving = senders().filter((s) => keys.includes(s.key));
+  state.working = { phase: "unsubscribe", done: 0, total: keys.length };
+  state.report = null;
+  state.error = null;
+  render();
+  window.scrollTo({ top: 0 });
   const unlisten = await onUnsubProgress((p) => {
-    if (state.modal?.kind === "working") showModal({ kind: "working", ...p });
+    state.working = p;
+    renderSummary();
   });
   try {
     const outcomes = await api.unsubscribe(acc.id, keys, state.trash);
     await loadAccountState();
-    showModal({ kind: "results", outcomes, opened: new Set() });
+    const left = leaving.filter((s) => outcomes.some((o) => o.key === s.key && o.status === "done"));
+    state.report = { outcomes, opened: new Set(), perMonth: perMonth(left) };
   } catch (e) {
-    showModal(null);
-    state.scanError = String(e);
+    state.error = String(e);
   } finally {
     unlisten();
+    state.working = null;
     render();
   }
 }
@@ -732,6 +831,10 @@ document.addEventListener("click", async (ev) => {
       showModal(null);
       renderList();
       break;
+    case "close-report":
+      state.report = null;
+      renderReport();
+      break;
     case "lang":
       setLang(el.dataset.lang as "it" | "en");
       render();
@@ -743,10 +846,15 @@ document.addEventListener("click", async (ev) => {
     case "donate":
       showModal({ kind: "donate" });
       break;
-    case "remove-account": {
+    case "remove-account":
+      showModal({ kind: "remove-account" });
+      break;
+    case "confirm-remove": {
       const acc = account();
-      if (acc && confirm(t.removeConfirm(acc.email))) {
+      showModal(null);
+      if (acc) {
         await api.removeAccount(acc.id);
+        state.report = null;
         await loadAccounts();
         await loadAccountState();
         render();
@@ -779,13 +887,13 @@ document.addEventListener("click", async (ev) => {
       await api.setKept(id, key, action === "keep");
       action === "keep" ? state.kept.add(key) : state.kept.delete(key);
       state.selected.delete(key);
-      renderHero();
+      renderSummary();
       renderList();
       break;
     case "undo":
       await api.forgetUnsubscribed(id, key);
       state.history.delete(key);
-      renderHero();
+      renderSummary();
       renderList();
       break;
     case "quit-all":
@@ -803,20 +911,21 @@ document.addEventListener("click", async (ev) => {
       break;
     case "open-manual":
     case "open-all-manual": {
-      const m = state.modal;
-      if (m?.kind !== "results") break;
-      const targets = m.outcomes.filter(
-        (o) => o.status === "manual" && (action === "open-all-manual" ? !m.opened.has(o.key) : o.key === key),
+      const r = state.report;
+      if (!r) break;
+      const targets = r.outcomes.filter(
+        (o) => o.status === "manual" && (action === "open-all-manual" ? !r.opened.has(o.key) : o.key === key),
       );
-      for (const o of targets) await openManual(o, m.opened);
-      renderModal();
+      for (const o of targets) await openManual(o, r.opened);
+      renderReport();
+      renderList();
       break;
     }
   }
 });
 
 document.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape" && state.modal && state.modal.kind !== "working") showModal(null);
+  if (ev.key === "Escape" && state.modal) showModal(null);
 });
 
 // ---------- boot ----------
@@ -828,6 +937,9 @@ function render() {
 }
 
 async function boot() {
+  if (import.meta.env.DEV && new URLSearchParams(location.search).has("demo")) {
+    await (await import("./demo")).installDemo();
+  }
   setLang(lang);
   await loadAccounts();
   await loadAccountState();
